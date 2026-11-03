@@ -1,0 +1,101 @@
+@page "/churches"
+@inject AdminApiClient Api
+
+<PageTitle>Churches · ChurchTranslate</PageTitle>
+<main class="dashboard settings-page">
+    <div class="eyebrow"><span class="eyebrow-line"></span> WORKSPACE SETTINGS</div>
+    <h1>Churches<span class="accent-dot">.</span></h1>
+    <p class="settings-intro">Manage the churches you have access to and choose the languages listeners can hear.</p>
+
+    @if (loading) { <p>Loading churches…</p> }
+    else if (user is null) { <div class="settings-panel"><h2>Sign in required</h2><a class="signin-button" href="@Api.LoginUrl">Continue with Google ↗</a></div> }
+    else
+    {
+        <div class="settings-grid">
+            <section class="settings-panel">
+                <div class="settings-panel-head"><h2>Your churches</h2><span>@churches.Count TOTAL</span></div>
+                @if (churches.Count == 0) { <p class="empty-note">No churches are assigned yet.</p> }
+                @foreach (var church in churches)
+                {
+                    <button class="church-row @(selected?.Id == church.Id ? "selected" : "")" @onclick="() => Select(church)">
+                        <span class="church-avatar">@church.Name[..1].ToUpperInvariant()</span>
+                        <span><strong>@church.Name</strong><small>/@church.Slug · @(church.Enabled ? "Enabled" : "Disabled")</small></span><span aria-hidden="true">↗</span>
+                    </button>
+                }
+                @if (user.Role == "PlatformAdmin") { <button class="text-action" @onclick="NewChurch">+ Add church</button> }
+            </section>
+
+            <section class="settings-panel editor-panel">
+                <div class="settings-panel-head"><h2>@(selected is null ? "New church" : "Church settings")</h2><span>@(selected is null ? "CREATE" : "EDIT")</span></div>
+                @if (selected is null && user.Role != "PlatformAdmin") { <p class="empty-note">Choose a church to edit its settings.</p> }
+                else
+                {
+                    <div class="form-grid">
+                        <label>Church name<input @bind="name" maxlength="120" placeholder="Church name" /></label>
+                        <label>URL slug<input @bind="slug" maxlength="80" disabled="@(user.Role != "PlatformAdmin")" placeholder="church-name" /></label>
+                    </div>
+                    <div class="form-group-label">TRANSLATION LANGUAGES</div>
+                    <div class="checkbox-row"><label><input type="checkbox" @bind="english" /> English</label><label><input type="checkbox" @bind="arabic" /> Arabic</label><label><input type="checkbox" @bind="french" /> French</label></div>
+                    @if (user.Role == "PlatformAdmin")
+                    {
+                        <div class="form-grid">
+                            <label>Concurrent broadcast limit<input type="number" min="1" max="10" @bind="maxBroadcasts" /></label>
+                            <label>Monthly translation minutes<input type="number" min="0" @bind="monthlyLimit" placeholder="No limit" /></label>
+                        </div>
+                        <label class="toggle-label"><input type="checkbox" @bind="enabled" /> Church enabled</label>
+                    }
+                    <div class="form-actions"><button class="save-button" @onclick="SaveAsync" disabled="@saving">@(saving ? "Saving…" : "Save settings") <span>↗</span></button></div>
+                    @if (message is not null) { <p class="@(isError ? "form-error" : "form-success")" role="status">@message</p> }
+                }
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private CurrentUserResponse? user;
+    private IReadOnlyList<ChurchResponse> churches = [];
+    private ChurchResponse? selected;
+    private bool loading = true, saving, english = true, arabic = true, french = true, enabled = true, isError;
+    private string name = "", slug = "";
+    private int maxBroadcasts = 1;
+    private int? monthlyLimit;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { user = await Api.CurrentUserAsync(); if (user is not null) churches = await Api.ChurchesAsync(); }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+        finally { loading = false; }
+    }
+
+    private void Select(ChurchResponse church)
+    {
+        selected = church; name = church.Name; slug = church.Slug; enabled = church.Enabled;
+        maxBroadcasts = church.MaxConcurrentBroadcasts; monthlyLimit = church.MonthlyTranslationMinuteLimit;
+        english = church.TargetLanguages.Contains("en"); arabic = church.TargetLanguages.Contains("ar");
+        french = church.TargetLanguages.Contains("fr"); message = null;
+    }
+
+    private void NewChurch()
+    {
+        selected = null; name = slug = ""; enabled = english = arabic = french = true;
+        maxBroadcasts = 1; monthlyLimit = null; message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true; message = null; isError = false;
+        try
+        {
+            var targets = new[] { english ? "en" : null, arabic ? "ar" : null, french ? "fr" : null }
+                .Where(x => x is not null).Select(x => x!).ToArray();
+            var change = new ChurchChangeRequest(name, slug, targets, enabled, maxBroadcasts, monthlyLimit);
+            var updated = selected is null ? await Api.CreateChurchAsync(change) : await Api.UpdateChurchAsync(selected.Id, change);
+            churches = await Api.ChurchesAsync();
+            Select(updated); message = "Settings saved.";
+        }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+        finally { saving = false; }
+    }
+}

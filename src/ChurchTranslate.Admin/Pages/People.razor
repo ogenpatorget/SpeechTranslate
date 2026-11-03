@@ -1,0 +1,122 @@
+@page "/people"
+@inject AdminApiClient Api
+
+<PageTitle>Administrators · ChurchTranslate</PageTitle>
+<main class="dashboard settings-page">
+    <div class="eyebrow"><span class="eyebrow-line"></span> PLATFORM ADMINISTRATION</div>
+    <h1>Administrators<span class="accent-dot">.</span></h1>
+    <p class="settings-intro">Only invited Google accounts can enter the control room. Access is checked on every request.</p>
+
+    @if (loading) { <p>Loading administrators…</p> }
+    else if (user?.Role != "PlatformAdmin") { <div class="settings-panel"><h2>Platform access required</h2><p>This page is for platform administrators.</p></div> }
+    else
+    {
+        <div class="settings-grid">
+            <section class="settings-panel">
+                <div class="settings-panel-head"><h2>Approved accounts</h2><span>@people.Count TOTAL</span></div>
+                @foreach (var person in people)
+                {
+                    <div class="person-row"><span class="church-avatar">@person.Email[..1].ToUpperInvariant()</span><span><strong>@person.Email</strong><small>@person.Role · @(person.HasGoogleIdentity ? "Connected" : "Pending invitation")</small></span><button class="small-action" @onclick="() => SelectPerson(person)">Assign</button><button class="small-action" @onclick="() => ToggleAsync(person)" disabled="@(person.Id == user.Id)">@(person.Enabled ? "Disable" : "Enable")</button></div>
+                }
+            </section>
+            <section class="settings-panel editor-panel">
+                <div class="settings-panel-head"><h2>Invite an administrator</h2><span>NEW INVITATION</span></div>
+                <div class="form-grid"><label>Google account email<input @bind="email" type="email" placeholder="name@example.org" /></label><label>Role<select @bind="role"><option value="ChurchAdmin">Church administrator</option><option value="PlatformAdmin">Platform administrator</option></select></label></div>
+                @if (role == "ChurchAdmin")
+                {
+                    <label class="wide-label">Assign church<select @bind="churchId"><option value="">Select a church</option>@foreach (var church in churches) { <option value="@church.Id">@church.Name</option> }</select></label>
+                }
+                <div class="form-actions"><button class="save-button" @onclick="InviteAsync" disabled="@saving">@(saving ? "Saving…" : "Create invitation") <span>↗</span></button></div>
+                @if (message is not null) { <p class="@(isError ? "form-error" : "form-success")" role="status">@message</p> }
+                <p class="form-hint">The invitation becomes active only after Google confirms ownership of the email address.</p>
+                @if (selectedPerson is not null)
+                {
+                    <div class="assignment-editor">
+                        <div class="settings-panel-head"><h2>Church access</h2><span>@selectedPerson.Email</span></div>
+                        <div class="assignment-list">
+                            @foreach (var church in churches)
+                            {
+                                <label><input type="checkbox" checked="@assignedIds.Contains(church.Id)" @onchange="e => SetAssignment(church.Id, e.Value is true)" /> @church.Name</label>
+                            }
+                        </div>
+                        <button class="save-button" @onclick="SaveAssignmentsAsync">Save assignments <span>↗</span></button>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</main>
+
+@code {
+    private CurrentUserResponse? user;
+    private IReadOnlyList<ChurchResponse> churches = [];
+    private IReadOnlyList<UserResponse> people = [];
+    private bool loading = true, saving, isError;
+    private string email = "", role = "ChurchAdmin", churchId = "";
+    private string? message;
+    private UserResponse? selectedPerson;
+    private HashSet<Guid> assignedIds = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            user = await Api.CurrentUserAsync();
+            if (user?.Role == "PlatformAdmin") { churches = await Api.ChurchesAsync(); people = await Api.UsersAsync(); }
+        }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+        finally { loading = false; }
+    }
+
+    private async Task InviteAsync()
+    {
+        saving = true; message = null; isError = false;
+        try
+        {
+            var ids = role == "PlatformAdmin" ? Array.Empty<Guid>() :
+                Guid.TryParse(churchId, out var id) ? new[] { id } : Array.Empty<Guid>();
+            await Api.InviteAsync(new InviteUserRequest(email, role, ids));
+            people = await Api.UsersAsync(); email = ""; message = "Invitation created.";
+        }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+        finally { saving = false; }
+    }
+
+    private async Task ToggleAsync(UserResponse person)
+    {
+        message = null; isError = false;
+        try
+        {
+            await Api.UpdateUserAsync(person.Id, new UpdateUserRequest(!person.Enabled, person.AssignedChurchIds));
+            people = await Api.UsersAsync();
+        }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+    }
+
+    private void SelectPerson(UserResponse person)
+    {
+        selectedPerson = person;
+        assignedIds = person.AssignedChurchIds.ToHashSet();
+        message = null;
+    }
+
+    private void SetAssignment(Guid churchId, bool assigned)
+    {
+        if (assigned) assignedIds.Add(churchId);
+        else assignedIds.Remove(churchId);
+    }
+
+    private async Task SaveAssignmentsAsync()
+    {
+        if (selectedPerson is null) return;
+        message = null; isError = false;
+        try
+        {
+            await Api.UpdateUserAsync(selectedPerson.Id, new UpdateUserRequest(selectedPerson.Enabled, assignedIds.ToArray()));
+            people = await Api.UsersAsync();
+            selectedPerson = people.FirstOrDefault(x => x.Id == selectedPerson.Id);
+            message = "Church access updated.";
+        }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+    }
+}

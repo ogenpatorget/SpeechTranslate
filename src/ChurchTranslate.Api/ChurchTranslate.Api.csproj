@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChurchTranslate.Application\ChurchTranslate.Application.csproj" />
+    <ProjectReference Include="..\ChurchTranslate.Contracts\ChurchTranslate.Contracts.csproj" />
+    <ProjectReference Include="..\ChurchTranslate.Infrastructure\ChurchTranslate.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.12" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>187eaed5-0bc2-415e-bb41-36c980965bca</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

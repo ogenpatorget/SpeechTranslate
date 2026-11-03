@@ -1,0 +1,111 @@
+@page "/"
+@inject AdminApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Overview · ChurchTranslate</PageTitle>
+
+@if (loading)
+{
+    <main class="dashboard auth-state"><span class="eyebrow">CONNECTING TO THE CONTROL ROOM</span><h1>One moment.</h1></main>
+}
+else if (user is null)
+{
+    <main class="dashboard auth-state">
+        <div class="eyebrow"><span class="eyebrow-line"></span> @(error is null ? "SECURE ADMINISTRATION" : "LOCAL CONNECTION")</div>
+        <h1>Welcome to the<br /><span>control room.</span></h1>
+        @if (error is not null)
+        {
+            <p>The local API is not running or cannot be reached. Start the local services, then refresh this page.</p>
+            <p class="form-error" role="alert">@error</p>
+        }
+        else if (localPreview)
+        {
+            <p>Local preview is open. Refresh this page to enter the studio.</p>
+        }
+        else if (googleConfigured)
+        {
+            <p>Sign in with an approved Google account to manage your church and prepare live translation.</p>
+            <a class="signin-button" href="@Api.LoginUrl">Continue with Google <span>↗</span></a>
+        }
+        else
+        {
+            <p class="setup-note">Google sign-in is ready in the app but needs backend OAuth credentials before it can be used.</p>
+        }
+        @if (!localPreview && error is null) { <p class="auth-note">Access is limited to accounts approved by a platform administrator.</p> }
+    </main>
+}
+else
+{
+<main id="overview" class="dashboard">
+    <div class="page-intro">
+        <div>
+            <div class="eyebrow"><span class="eyebrow-line"></span> THE CONTROL ROOM</div>
+            <h1>One voice.<br /><span>Every language.</span></h1>
+            <p>A calm, clear place to bring your message to everyone in the room and everyone joining from afar.</p>
+        </div>
+        <div class="intro-orbit" aria-hidden="true"><span></span><span></span><span></span><div class="orbit-center">CT</div></div>
+    </div>
+
+    <div class="section-heading"><div><span class="section-index">01 /</span><h2>At a glance</h2></div><span class="section-note">READY FOR SETUP</span></div>
+    <div class="metric-grid">
+        <div class="metric-card"><div class="metric-icon mint" aria-hidden="true">⌂</div><span class="metric-label">CHURCH WORKSPACES</span><strong>@churches.Count</strong><span class="metric-detail"><a href="/churches">Manage church settings →</a></span></div>
+        <div class="metric-card"><div class="metric-icon lavender" aria-hidden="true">◎</div><span class="metric-label">LIVE BROADCASTS</span><strong>@broadcasts.Count</strong><span class="metric-detail"><span class="quiet-dot"></span> @(broadcasts.Count == 0 ? "Nothing on air right now" : "A stream is on air")</span></div>
+        <div class="metric-card"><div class="metric-icon peach" aria-hidden="true">◈</div><span class="metric-label">TARGET LANGUAGES</span><strong>03</strong><span class="metric-detail">English · Arabic · French</span></div>
+    </div>
+
+    <div id="studio" class="section-heading studio-heading"><div><span class="section-index">02 /</span><h2>Broadcast studio</h2></div><span class="section-note">READY</span></div>
+    <section class="studio-card" aria-label="Broadcast studio preview">
+        <div class="studio-main">
+            <div class="studio-topline"><span class="live-indicator"><span></span> @(broadcasts.Count > 0 ? "ON AIR" : "OFF AIR")</span><span class="studio-id">STUDIO / 001</span></div>
+            <div class="waveform" aria-hidden="true">
+                <span style="--h:18%"></span><span style="--h:31%"></span><span style="--h:23%"></span><span style="--h:45%"></span><span style="--h:68%"></span><span style="--h:38%"></span><span style="--h:77%"></span><span style="--h:52%"></span><span style="--h:90%"></span><span style="--h:60%"></span><span style="--h:42%"></span><span style="--h:72%"></span><span style="--h:35%"></span><span style="--h:82%"></span><span style="--h:55%"></span><span style="--h:26%"></span><span style="--h:48%"></span><span style="--h:31%"></span><span style="--h:62%"></span><span style="--h:40%"></span><span style="--h:20%"></span>
+            </div>
+            <div class="waveform-caption"><span>INPUT SIGNAL</span><span>@(broadcasts.Count > 0 ? "LIVE AUDIO CONNECTED" : "AWAITING AUDIO SOURCE")</span></div>
+        </div>
+        <div class="studio-side">
+            <div class="panel-kicker">AUDIO ROUTING</div>
+            <div class="route-block"><span>SOURCE LANGUAGE</span><strong><span class="language-code">SV</span> Swedish</strong></div>
+            <div class="route-divider"><span>↓</span></div>
+            <div class="route-block"><span>TRANSLATE TO</span><div class="language-pills"><span>EN <b>English</b></span><span>AR <b>Arabic</b></span><span>FR <b>French</b></span></div></div>
+            <a class="primary-button" href="/studio">Open live studio <span aria-hidden="true">↗</span></a>
+            <p class="control-note">Select an input, choose languages, and start a live stream.</p>
+        </div>
+    </section>
+
+    <div id="how-it-works" class="section-heading flow-heading"><div><span class="section-index">03 /</span><h2>Built for a simple flow</h2></div></div>
+    <div class="flow-grid">
+        <div class="flow-step"><span class="step-number">01</span><span class="step-symbol" aria-hidden="true">⌁</span><h3>Connect your sound</h3><p>Choose the mixer input from a computer at the venue.</p></div>
+        <div class="flow-step"><span class="step-number">02</span><span class="step-symbol" aria-hidden="true">✳</span><h3>Translate once</h3><p>One stream feeds each language, no matter how many people listen.</p></div>
+        <div class="flow-step"><span class="step-number">03</span><span class="step-symbol" aria-hidden="true">◉</span><h3>Share the moment</h3><p>Listeners open a link on their phones and choose a language.</p></div>
+    </div>
+    <footer class="dashboard-footer">CHURCHTRANSLATE <span>·</span> SPEECH WITHOUT BORDERS</footer>
+</main>
+}
+
+@code {
+    private bool loading = true;
+    private bool googleConfigured;
+    private bool localPreview;
+    private CurrentUserResponse? user;
+    private IReadOnlyList<ChurchResponse> churches = [];
+    private IReadOnlyList<BroadcastResponse> broadcasts = [];
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var config = await Api.AuthConfigAsync();
+            googleConfigured = config.Configured;
+            localPreview = config.DevOpenAccess;
+            user = await Api.CurrentUserAsync();
+            if (user is not null)
+            {
+                churches = await Api.ChurchesAsync();
+                broadcasts = await Api.BroadcastsAsync();
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { loading = false; }
+    }
+}

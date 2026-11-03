@@ -1,0 +1,38 @@
+@inject AdminApiClient Api
+@inject NavigationManager Navigation
+
+@if (allowed)
+{
+    <RouteView RouteData="@RouteData" DefaultLayout="@typeof(MainLayout)" />
+    <FocusOnNavigate RouteData="@RouteData" Selector="h1" />
+}
+else if (checking)
+{
+    <main class="dashboard auth-state"><h1>Checking access…</h1></main>
+}
+
+@code {
+    [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
+
+    private bool allowed;
+    private bool checking;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        allowed = false;
+        checking = true;
+
+        if (RouteData.PageType == typeof(Pages.Home) || RouteData.PageType == typeof(Pages.AccessDenied))
+        {
+            allowed = true;
+        }
+        else
+        {
+            try { allowed = await Api.CurrentUserAsync() is not null; }
+            catch { allowed = false; }
+        }
+
+        checking = false;
+        if (!allowed) Navigation.NavigateTo("/");
+    }
+}

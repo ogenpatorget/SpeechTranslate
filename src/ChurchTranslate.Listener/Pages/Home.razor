@@ -1,0 +1,128 @@
+@page "/"
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>Listen · ChurchTranslate</PageTitle>
+<main class="listen-main">
+    <section class="listen-hero">
+        <div class="hero-copy"><div class="eyebrow"><span></span> LIVE TRANSLATION EXPERIENCE</div><h1>Be here.<br /><em>Understand</em><br />everything.</h1><p>Choose a language and listen to the message in a way that feels close, wherever you are.</p></div>
+        <div class="signal-art" aria-hidden="true"><div class="signal-ring ring-one"></div><div class="signal-ring ring-two"></div><div class="signal-ring ring-three"></div><div class="signal-core"><svg viewBox="0 0 80 80" fill="none"><path d="M13 40h8m8-15v30m11-42v54m11-39v24m9-17h7" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg></div><span class="signal-spark spark-one"></span><span class="signal-spark spark-two"></span></div>
+    </section>
+
+    <section class="player-card" aria-label="Translation player">
+        <div class="player-heading"><div><span class="card-kicker">YOUR LISTENING SPACE</span><h2>@(broadcast?.ChurchName ?? "Listen in your language")</h2></div><span class="waiting-badge"><span></span> @(playing ? "LISTENING LIVE" : broadcast is null ? "WAITING FOR BROADCAST" : "LIVE NOW")</span></div>
+        @if (error is not null) { <p class="listener-error" role="alert">@error</p> }
+        <p class="selection-label">SELECT AUDIO LANGUAGE</p>
+        <div class="language-list" role="group" aria-label="Audio language">
+            @foreach (var language in languages)
+            {
+                <button type="button" disabled="@(broadcast is null || !broadcast.TargetLanguages.Contains(language.Code))" class="language-option @(selectedLanguage == language.Code ? "selected" : "")" aria-pressed="@(selectedLanguage == language.Code)" @onclick="() => SelectLanguageAsync(language.Code)"><span class="lang-monogram">@language.Code.ToUpperInvariant()</span><span class="language-name"><strong>@language.NativeName</strong><small>@language.Name</small></span><span class="selection-ring" aria-hidden="true"></span></button>
+            }
+        </div>
+        <div class="playback-settings">
+            <span class="selection-label">PLAYBACK</span>
+            <div class="playback-modes" role="group" aria-label="Playback smoothness">
+                <button type="button" class="@(mode == "fast" ? "active" : "")" aria-pressed="@(mode == "fast")" @onclick='() => SetModeAsync("fast")'>Fast</button>
+                <button type="button" class="@(mode == "balanced" ? "active" : "")" aria-pressed="@(mode == "balanced")" @onclick='() => SetModeAsync("balanced")'>Balanced</button>
+                <button type="button" class="@(mode == "smooth" ? "active" : "")" aria-pressed="@(mode == "smooth")" @onclick='() => SetModeAsync("smooth")'>Smooth</button>
+            </div>
+            <p class="playback-hint">@(mode == "fast" ? "Lowest delay; gaps may be more noticeable." : mode == "smooth" ? "More even playback with a little more delay." : "A little buffering for steadier sound.")</p>
+            <label class="volume-label" for="listener-volume">Volume <strong>@volume%</strong></label>
+            <input id="listener-volume" class="volume-slider" type="range" min="0" max="200" step="10" value="@volume" @oninput="SetVolumeAsync" />
+        </div>
+        <button class="play-button" disabled="@(broadcast is null)" @onclick="ToggleAsync"><span class="play-icon" aria-hidden="true">@(playing ? "■" : "▶")</span> @(playing ? "Stop listening" : "Start listening") <span aria-hidden="true">↗</span></button>
+        <div class="player-note"><span aria-hidden="true">◎</span><p>@(broadcast?.Provider == "Demo tone" ? "This is a local demo signal, not translated speech." : "Use headphones for the clearest sound. No account or app needed.")</p></div>
+    </section>
+    <p class="listen-footnote">Bring your own headphones for the best experience.</p>
+</main>
+
+@code {
+    [SupplyParameterFromQuery(Name = "broadcast")] public Guid? BroadcastId { get; set; }
+    private static readonly (string Code, string NativeName, string Name)[] languages =
+        [("en", "English", "English"), ("ar", "العربية", "Arabic"), ("fr", "Français", "French")];
+    private BroadcastResponse? broadcast;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Home>? callback;
+    private string selectedLanguage = "en";
+    private string mode = "smooth";
+    private int volume = 100;
+    private bool playing;
+    private string? error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (BroadcastId is null) { broadcast = null; return; }
+        try
+        {
+            broadcast = await Http.GetFromJsonAsync<BroadcastResponse>($"api/public/broadcasts/{BroadcastId}");
+            if (broadcast is not null && !broadcast.TargetLanguages.Contains(selectedLanguage))
+                selectedLanguage = broadcast.TargetLanguages[0];
+            error = null;
+        }
+        catch { broadcast = null; error = "This broadcast is not live yet. Refresh when it starts."; }
+    }
+
+    private async Task SelectLanguageAsync(string language)
+    {
+        if (selectedLanguage == language) return;
+        var wasPlaying = playing;
+        if (playing) await StopAsync();
+        selectedLanguage = language;
+        if (wasPlaying) await PlayAsync();
+    }
+
+    private Task ToggleAsync() => playing ? StopAsync() : PlayAsync();
+
+    private async Task SetModeAsync(string value)
+    {
+        mode = value;
+        if (module is not null) await module.InvokeVoidAsync("setPlaybackSettings", mode, volume);
+    }
+
+    private async Task SetVolumeAsync(ChangeEventArgs change)
+    {
+        if (!int.TryParse(change.Value?.ToString(), out var value)) return;
+        volume = Math.Clamp(value, 0, 200);
+        if (module is not null) await module.InvokeVoidAsync("setPlaybackSettings", mode, volume);
+    }
+
+    private async Task PlayAsync()
+    {
+        if (broadcast is null) return;
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./listener-audio.js");
+            callback ??= DotNetObjectReference.Create(this);
+            var token = await Http.GetFromJsonAsync<ListenTokenResponse>(
+                $"api/public/broadcasts/{broadcast.Id}/{selectedLanguage}/token");
+            var url = new Uri(Http.BaseAddress!, $"ws/listen/{broadcast.Id}/{selectedLanguage}?token={Uri.EscapeDataString(token!.Token)}")
+                .ToString().Replace("http://", "ws://").Replace("https://", "wss://");
+            await module.InvokeVoidAsync("startPlayback", url, callback, mode, volume);
+            playing = true; error = null;
+        }
+        catch (Exception ex) { error = ex.Message; playing = false; }
+    }
+
+    private async Task StopAsync()
+    {
+        if (module is not null) await module.InvokeVoidAsync("stopPlayback");
+        playing = false;
+    }
+
+    [JSInvokable] public void PlaybackEnded()
+    {
+        playing = false;
+        error = "The audio connection ended. Press Start listening to reconnect.";
+        InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("stopPlayback"); await module.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
+        callback?.Dispose();
+    }
+}

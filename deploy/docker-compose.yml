@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ChurchTranslate__DataPath: /data
+      ChurchTranslate__DevOpenAccess: "false"
+      ChurchTranslate__AdminOrigin: ${ADMIN_ORIGIN:-http://127.0.0.1:5301}
+      ChurchTranslate__ListenerOrigin: ${LISTENER_ORIGIN:-http://127.0.0.1:5302}
+      ChurchTranslate__BootstrapPlatformAdminEmail: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      ChurchTranslate__TranslationProvider: ${TRANSLATION_PROVIDER:-Mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      Authentication__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+      Authentication__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - churchtranslate-data:/data
+    restart: unless-stopped
+
+volumes:
+  churchtranslate-data:

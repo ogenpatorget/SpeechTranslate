@@ -1,0 +1,152 @@
+@page "/studio"
+@implements IAsyncDisposable
+@inject AdminApiClient Api
+@inject IJSRuntime JS
+@using QRCoder
+
+<PageTitle>Live studio · ChurchTranslate</PageTitle>
+<main class="dashboard studio-page">
+    <div class="eyebrow"><span class="eyebrow-line"></span> LIVE STUDIO</div>
+    <h1>Bring your voice<br /><span>to everyone.</span></h1>
+    <p class="studio-intro">Choose the mixer input, then start a stream for the languages your church needs.</p>
+    @if (error is not null) { <p class="form-error" role="alert">@error</p> }
+    @if (broadcast is not null)
+    {
+        <section class="studio-control-card">
+            <div class="studio-status"><span class="live-indicator"><span></span> LIVE</span><strong>@broadcast.ChurchName</strong></div>
+            <p>@broadcast.Provider · @string.Join(" · ", broadcast.TargetLanguages.Select(x => x.ToUpperInvariant()))</p>
+            <div class="input-meter" aria-label="Input level"><span style="width:@($"{level:0}%")"></span></div>
+            <small>INPUT LEVEL</small>
+            <div class="share-row"><a href="@Api.ListenerLink(broadcast.Id)" target="_blank" rel="noopener">Open listener in a new tab ↗</a><code>@Api.ListenerLink(broadcast.Id)</code></div>
+            <div class="qr-share">
+                <img src="@QrImage" alt="QR code for the listener link" width="180" height="180" />
+                <div><strong>@(IsLocalLink ? "Local QR preview" : "Scan to listen")</strong><p>Keep this studio tab open while people join. Closing it stops the audio source.</p></div>
+            </div>
+            @if (IsLocalLink)
+            {
+                <p class="control-note">This local link works on this computer only. Listening on a phone needs a reachable HTTPS address.</p>
+            }
+            <button class="primary-button stop-button" @onclick="StopAsync">Stop broadcast</button>
+        </section>
+    }
+    else
+    {
+        <section class="studio-control-card">
+            <label for="church">CHURCH</label>
+            <select id="church" @bind="churchId"><option value="">Select a church</option>@foreach (var church in churches) { <option value="@church.Id">@church.Name</option> }</select>
+            <label for="device">AUDIO INPUT</label>
+            <div class="device-row"><select id="device" @bind="deviceId"><option value="">Default microphone or mixer</option>@foreach (var device in devices) { <option value="@device.Id">@device.Label</option> }</select><button @onclick="FindDevicesAsync">Find inputs</button></div>
+            <p class="control-note">Connect the venue mixer as a computer audio input. Your browser will ask for microphone access.</p>
+            <label>TRANSLATE TO</label>
+            <div class="language-checks"><label><input type="checkbox" @bind="english" /> English</label><label><input type="checkbox" @bind="arabic" /> Arabic</label><label><input type="checkbox" @bind="french" /> French</label></div>
+            <button class="primary-button" disabled="@busy" @onclick="StartAsync">@(busy ? "Connecting…" : "Start broadcast") <span>↗</span></button>
+            <p class="control-note">The local demo plays a synthetic tone. Choose the OpenAI provider in server settings to hear translation.</p>
+        </section>
+    }
+</main>
+
+@code {
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Studio>? callback;
+    private IReadOnlyList<ChurchResponse> churches = [];
+    private BroadcastResponse? broadcast;
+    private List<AudioDevice> devices = [];
+    private string churchId = "";
+    private string deviceId = "";
+    private bool english = true, arabic = true, french = true, busy;
+    private double level;
+    private string? error;
+    private bool IsLocalLink => broadcast is not null &&
+        (Api.ListenerLink(broadcast.Id).Contains("127.0.0.1") || Api.ListenerLink(broadcast.Id).Contains("localhost"));
+    private string? qrImage;
+    private string? QrImage
+    {
+        get
+        {
+            if (broadcast is null) return null;
+            if (qrImage is not null) return qrImage;
+            using var data = QRCodeGenerator.GenerateQrCode(Api.ListenerLink(broadcast.Id), QRCodeGenerator.ECCLevel.Q);
+            var png = new PngByteQRCode(data).GetGraphic(6);
+            return qrImage = "data:image/png;base64," + Convert.ToBase64String(png);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Api.AuthConfigAsync();
+            churches = await Api.ChurchesAsync();
+            churchId = churches.FirstOrDefault()?.Id.ToString() ?? "";
+            broadcast = (await Api.BroadcastsAsync()).FirstOrDefault(x => x.Status == "Live");
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private async Task FindDevicesAsync()
+    {
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./studio-audio.js");
+            devices = await module.InvokeAsync<List<AudioDevice>>("listInputs");
+            error = null;
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private async Task StartAsync()
+    {
+        if (!Guid.TryParse(churchId, out var church)) { error = "Select a church."; return; }
+        var languages = new[] { english ? "en" : null, arabic ? "ar" : null, french ? "fr" : null }
+            .Where(x => x is not null).Select(x => x!).ToArray();
+        if (languages.Length == 0) { error = "Select at least one language."; return; }
+        busy = true; error = null;
+        try
+        {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./studio-audio.js");
+            callback = DotNetObjectReference.Create(this);
+            broadcast = await Api.StartBroadcastAsync(church, languages);
+            qrImage = null;
+            await module.InvokeVoidAsync("startCapture", Api.IngestWebSocketUrl(broadcast.Id), deviceId, callback);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            if (broadcast is not null) { await Api.StopBroadcastAsync(broadcast.Id); broadcast = null; }
+        }
+        finally { busy = false; }
+    }
+
+    private async Task StopAsync()
+    {
+        if (broadcast is null) return;
+        try
+        {
+            if (module is not null) await module.InvokeVoidAsync("stopCapture");
+            await Api.StopBroadcastAsync(broadcast.Id);
+            broadcast = null; level = 0; error = null;
+            qrImage = null;
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    [JSInvokable] public void InputLevel(double value) { level = value; InvokeAsync(StateHasChanged); }
+    [JSInvokable] public void AudioStopped(string reason)
+    {
+        error = reason;
+        broadcast = null;
+        level = 0;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("stopCapture"); await module.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
+        callback?.Dispose();
+    }
+
+    private sealed record AudioDevice(string Id, string Label);
+}

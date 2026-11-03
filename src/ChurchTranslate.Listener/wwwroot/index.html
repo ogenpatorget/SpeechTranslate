@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChurchTranslate Listener</title>
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link href="ChurchTranslate.Listener.styles.css" rel="stylesheet" />
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script>
+        const listenerBootTimer = setTimeout(() => {
+            const loading = document.querySelector("#app .loading-progress");
+            if (!loading) return;
+            document.querySelector("#app").innerHTML =
+                '<div style="max-width:440px;margin:25vh auto;padding:28px;color:#eaf3f7;font-family:Segoe UI,Arial,sans-serif">' +
+                '<h1 style="font-size:28px">Listening room could not load</h1>' +
+                '<p style="line-height:1.6;color:#9fb4c0">Check that the Listener project is running, then refresh this page.</p>' +
+                '<button onclick="location.reload()" style="padding:10px 16px;border:0;border-radius:8px;background:#59d4c1;color:#063b40;cursor:pointer">Refresh</button></div>';
+        }, 30000);
+    </script>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+
+</html>
+

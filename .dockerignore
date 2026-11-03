@@ -1,0 +1,8 @@
+.dotnet/
+**/bin/
+**/obj/
+.git/
+.vs/
+data/
+secrets/
+restore.log

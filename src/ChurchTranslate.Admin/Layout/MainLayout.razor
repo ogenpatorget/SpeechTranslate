@@ -1,0 +1,61 @@
+@inherits LayoutComponentBase
+@inject AdminApiClient Api
+@inject NavigationManager Navigation
+
+<div class="admin-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="/" aria-label="ChurchTranslate home">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 40 40" fill="none"><path d="M9 20h4m4-9v18m5-23v28m5-22v16m4-11h2" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg>
+            </span>
+            <span>church<span class="brand-accent">translate</span><small>CONTROL ROOM</small></span>
+        </a>
+
+        <div class="nav-caption">WORKSPACE</div>
+        <nav class="primary-nav">
+            <NavLink href="/" Match="NavLinkMatch.All" class="nav-link"><span class="nav-icon" aria-hidden="true">◫</span> Overview</NavLink>
+            @if (currentUser is not null)
+            {
+                <NavLink href="/churches" class="nav-link"><span class="nav-icon" aria-hidden="true">⌂</span> Churches</NavLink>
+                <NavLink href="/studio" class="nav-link"><span class="nav-icon" aria-hidden="true">◉</span> Live studio</NavLink>
+                @if (currentUser.Role == "PlatformAdmin")
+                {
+                    <NavLink href="/people" class="nav-link"><span class="nav-icon" aria-hidden="true">◎</span> Administrators</NavLink>
+                }
+            }
+        </nav>
+
+        <div class="sidebar-bottom">
+            <div class="sidebar-status"><span class="status-dot"></span><span><strong>Live studio ready</strong><small>Audio routing available</small></span></div>
+            <div class="sidebar-foot">ChurchTranslate <span>v0.1</span></div>
+        </div>
+    </aside>
+
+    <div class="main-column">
+        <header class="topbar">
+            <span class="topbar-path">Workspace <span>/</span> Control room</span>
+            @if (currentUser is not null && !localPreview) { <button class="signout-link" @onclick="SignOutAsync">Sign out <span>↗</span></button> }
+            else if (localPreview) { <span class="topbar-badge"><span class="status-dot"></span> LOCAL PREVIEW</span> }
+            else { <span class="topbar-badge"><span class="status-dot"></span> SECURE ACCESS</span> }
+        </header>
+        @Body
+    </div>
+</div>
+
+@code {
+    private CurrentUserResponse? currentUser;
+    private bool localPreview;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { localPreview = (await Api.AuthConfigAsync()).DevOpenAccess; currentUser = await Api.CurrentUserAsync(); }
+        catch { currentUser = null; }
+    }
+
+    private async Task SignOutAsync()
+    {
+        await Api.SignOutAsync();
+        currentUser = null;
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}
