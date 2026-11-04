@@ -15,7 +15,7 @@ public sealed record InviteUserRequest(string Email, string Role, Guid[] Assigne
 public sealed record UpdateUserRequest(bool Enabled, Guid[] AssignedChurchIds);
 public sealed record CsrfResponse(string Token);
 public sealed record GoogleAuthStatusResponse(bool Configured);
-public sealed record AuthConfigResponse(bool Configured, bool DevOpenAccess, string ListenerOrigin);
+public sealed record AuthConfigResponse(bool Configured, bool DevOpenAccess, string ListenerUrl, bool EphemeralMode);
 public sealed record StartBroadcastRequest(Guid ChurchId, string[] TargetLanguages);
 public sealed record BroadcastResponse(Guid Id, Guid ChurchId, string ChurchName, string Status,
     string[] TargetLanguages, string Provider, DateTimeOffset? StartedAtUtc, int ListenerCount);

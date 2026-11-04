@@ -8,25 +8,38 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var settings = builder.Configuration.GetSection("ChurchTranslate").Get<ApiOptions>() ?? new ApiOptions();
+var publicAdminUrl = string.IsNullOrWhiteSpace(settings.PublicAdminUrl) ? settings.AdminOrigin : settings.PublicAdminUrl;
+var publicListenerUrl = string.IsNullOrWhiteSpace(settings.PublicListenerUrl) ? settings.ListenerOrigin : settings.PublicListenerUrl;
+var approvedAdminEmails = settings.ApprovedAdminEmails.Split([',', ';'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+    .Concat(string.IsNullOrWhiteSpace(settings.BootstrapPlatformAdminEmail)
+        ? Enumerable.Empty<string>() : [settings.BootstrapPlatformAdminEmail.Trim()])
+    .Select(x => x.ToLowerInvariant()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 if (settings.DevOpenAccess && !builder.Environment.IsDevelopment())
     throw new InvalidOperationException("DevOpenAccess is available only in Development.");
+if (settings.EphemeralMode && !settings.DevOpenAccess && approvedAdminEmails.Length == 0)
+    throw new InvalidOperationException("EphemeralMode requires at least one approved administrator email.");
 if (!settings.TranslationProvider.Equals("Mock", StringComparison.OrdinalIgnoreCase) &&
     !settings.TranslationProvider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
     throw new InvalidOperationException("TranslationProvider must be Mock or OpenAI.");
-var dataPath = Path.GetFullPath(settings.DataPath, builder.Environment.ContentRootPath);
-Directory.CreateDirectory(Path.Combine(dataPath, "keys"));
 builder.Services.AddSingleton(settings);
-builder.Services.AddChurchTranslateFoundation(dataPath);
+if (settings.EphemeralMode) builder.Services.AddChurchTranslateEphemeralFoundation();
+else
+{
+    var dataPath = Path.GetFullPath(settings.DataPath, builder.Environment.ContentRootPath);
+    Directory.CreateDirectory(Path.Combine(dataPath, "keys"));
+    builder.Services.AddChurchTranslateFoundation(dataPath);
+    builder.Services.AddDataProtection().SetApplicationName("ChurchTranslate")
+        .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataPath, "keys")));
+}
 builder.Services.AddSingleton<ITranslationProvider>(_ => settings.TranslationProvider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase)
     ? new OpenAiTranslationProvider(builder.Configuration["OPENAI_API_KEY"] ?? "") : new MockTranslationProvider());
 builder.Services.AddSingleton<BroadcastRuntime>();
-builder.Services.AddDataProtection().SetApplicationName("ChurchTranslate")
-    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataPath, "keys")));
 builder.Services.AddSingleton<ITimeLimitedDataProtector>(sp =>
     sp.GetRequiredService<IDataProtectionProvider>().CreateProtector("listener-stream-v1").ToTimeLimitedDataProtector());
 builder.Services.AddAntiforgery(options =>
@@ -34,8 +47,9 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "X-CSRF-TOKEN";
     options.Cookie.Name = "ct.csrf";
     options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+    options.Cookie.SameSite = settings.CrossSiteCookies ? SameSiteMode.None : SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() && !settings.CrossSiteCookies
+        ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
 });
 builder.Services.AddCors(options => options.AddPolicy("admin", policy =>
     policy.WithOrigins(settings.AdminOrigin.TrimEnd('/'), settings.ListenerOrigin.TrimEnd('/'))
@@ -50,8 +64,9 @@ builder.Services.AddAuthentication(options =>
 {
     options.Cookie.Name = "ct.session";
     options.Cookie.HttpOnly = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+    options.Cookie.SameSite = settings.CrossSiteCookies ? SameSiteMode.None : SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() && !settings.CrossSiteCookies
+        ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = false;
     options.Events.OnRedirectToLogin = context =>
@@ -108,7 +123,7 @@ builder.Services.AddAuthentication(options =>
     options.Events.OnRemoteFailure = context =>
     {
         context.HandleResponse();
-        context.Response.Redirect(settings.AdminOrigin.TrimEnd('/') + "/access-denied");
+        context.Response.Redirect(publicAdminUrl.TrimEnd('/') + "/access-denied");
         return Task.CompletedTask;
     };
 });
@@ -122,8 +137,28 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
+if (settings.EphemeralMode)
+{
+    builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+    builder.Services.AddSingleton<MemoryXmlRepository>();
+    builder.Services.AddOptions<KeyManagementOptions>()
+        .Configure<MemoryXmlRepository>((options, repository) => options.XmlRepository = repository);
+}
+
 var app = builder.Build();
-if (!app.Environment.IsDevelopment()) { app.UseHsts(); app.UseHttpsRedirection(); }
+if (!app.Environment.IsDevelopment())
+{
+    if (Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL") is { Length: > 0 } renderUrl)
+    {
+        if (!Uri.TryCreate(renderUrl, UriKind.Absolute, out var renderUri) || renderUri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("RENDER_EXTERNAL_URL must be an HTTPS URL.");
+        // Render terminates TLS before forwarding HTTP to Kestrel; it already redirects public HTTP.
+        // Set the known external scheme for Google's OAuth callback without trusting client headers.
+        app.Use((http, next) => { http.Request.Scheme = Uri.UriSchemeHttps; return next(); });
+    }
+    else app.UseHttpsRedirection();
+    app.UseHsts();
+}
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
     StatusCodeSelector = exception => exception is BadHttpRequestException
@@ -142,15 +177,16 @@ if (app.Environment.IsDevelopment() && settings.DevOpenAccess)
 }
 app.UseAuthorization();
 
-if (!string.IsNullOrWhiteSpace(settings.BootstrapPlatformAdminEmail))
+if (approvedAdminEmails.Length > 0)
 {
     using var scope = app.Services.CreateScope();
     var repository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
-    var email = settings.BootstrapPlatformAdminEmail.Trim().ToLowerInvariant();
-    if (!(await repository.ListAsync(CancellationToken.None)).Any(x => x.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+    var existing = await repository.ListAsync(CancellationToken.None);
+    foreach (var email in approvedAdminEmails)
     {
+        if (existing.Any(x => x.Email.Equals(email, StringComparison.OrdinalIgnoreCase))) continue;
         await repository.SaveAsync(new ChurchUser { Email = email, Role = ChurchRole.PlatformAdmin }, CancellationToken.None);
-        app.Logger.LogInformation("Created initial platform administrator invitation");
+        app.Logger.LogInformation("Created platform administrator invitation");
     }
 }
 if (app.Environment.IsDevelopment() && settings.DevOpenAccess)
@@ -173,12 +209,13 @@ app.MapGet("/health/ready", (IClock clock) => new HealthResponse("ready", clock.
 app.MapGet("/api/auth/config", (IConfiguration config) => new AuthConfigResponse(
     !string.IsNullOrWhiteSpace(config["Authentication:Google:ClientId"]) &&
     !string.IsNullOrWhiteSpace(config["Authentication:Google:ClientSecret"]),
-    app.Environment.IsDevelopment() && settings.DevOpenAccess, settings.ListenerOrigin.TrimEnd('/')));
+    app.Environment.IsDevelopment() && settings.DevOpenAccess,
+    publicListenerUrl.TrimEnd('/') + "/", settings.EphemeralMode));
 app.MapGet("/auth/login", (IConfiguration config) =>
     string.IsNullOrWhiteSpace(config["Authentication:Google:ClientId"]) ||
     string.IsNullOrWhiteSpace(config["Authentication:Google:ClientSecret"])
         ? Results.Problem("Google sign-in is not configured.", statusCode: 503)
-        : Results.Challenge(new AuthenticationProperties { RedirectUri = settings.AdminOrigin.TrimEnd('/') + "/" },
+        : Results.Challenge(new AuthenticationProperties { RedirectUri = publicAdminUrl.TrimEnd('/') + "/" },
             [OpenIdConnectDefaults.AuthenticationScheme])).RequireRateLimiting("login");
 
 app.MapAdminEndpoints();

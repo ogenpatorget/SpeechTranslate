@@ -11,11 +11,11 @@
 else if (user is null)
 {
     <main class="dashboard auth-state">
-        <div class="eyebrow"><span class="eyebrow-line"></span> @(error is null ? "SECURE ADMINISTRATION" : "LOCAL CONNECTION")</div>
+        <div class="eyebrow"><span class="eyebrow-line"></span> @(error is null ? "SECURE ADMINISTRATION" : "CONNECTION ERROR")</div>
         <h1>Welcome to the<br /><span>control room.</span></h1>
         @if (error is not null)
         {
-            <p>The local API is not running or cannot be reached. Start the local services, then refresh this page.</p>
+            <p>The translation service cannot be reached. Check its address and connection, then refresh this page.</p>
             <p class="form-error" role="alert">@error</p>
         }
         else if (localPreview)
@@ -48,7 +48,7 @@ else
 
     <div class="section-heading"><div><span class="section-index">01 /</span><h2>At a glance</h2></div><span class="section-note">READY FOR SETUP</span></div>
     <div class="metric-grid">
-        <div class="metric-card"><div class="metric-icon mint" aria-hidden="true">⌂</div><span class="metric-label">CHURCH WORKSPACES</span><strong>@churches.Count</strong><span class="metric-detail"><a href="/churches">Manage church settings →</a></span></div>
+        <div class="metric-card"><div class="metric-icon mint" aria-hidden="true">⌂</div><span class="metric-label">CHURCH WORKSPACES</span><strong>@churches.Count</strong><span class="metric-detail"><a href="churches">Manage church settings →</a></span></div>
         <div class="metric-card"><div class="metric-icon lavender" aria-hidden="true">◎</div><span class="metric-label">LIVE BROADCASTS</span><strong>@broadcasts.Count</strong><span class="metric-detail"><span class="quiet-dot"></span> @(broadcasts.Count == 0 ? "Nothing on air right now" : "A stream is on air")</span></div>
         <div class="metric-card"><div class="metric-icon peach" aria-hidden="true">◈</div><span class="metric-label">TARGET LANGUAGES</span><strong>03</strong><span class="metric-detail">English · Arabic · French</span></div>
     </div>
@@ -67,7 +67,7 @@ else
             <div class="route-block"><span>SOURCE LANGUAGE</span><strong><span class="language-code">SV</span> Swedish</strong></div>
             <div class="route-divider"><span>↓</span></div>
             <div class="route-block"><span>TRANSLATE TO</span><div class="language-pills"><span>EN <b>English</b></span><span>AR <b>Arabic</b></span><span>FR <b>French</b></span></div></div>
-            <a class="primary-button" href="/studio">Open live studio <span aria-hidden="true">↗</span></a>
+            <a class="primary-button" href="studio">Open live studio <span aria-hidden="true">↗</span></a>
             <p class="control-note">Select an input, choose languages, and start a live stream.</p>
         </div>
     </section>

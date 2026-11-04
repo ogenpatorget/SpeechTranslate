@@ -5,7 +5,8 @@
 <main class="dashboard settings-page">
     <div class="eyebrow"><span class="eyebrow-line"></span> PLATFORM ADMINISTRATION</div>
     <h1>Administrators<span class="accent-dot">.</span></h1>
-    <p class="settings-intro">Only invited Google accounts can enter the control room. Access is checked on every request.</p>
+    <p class="settings-intro">Only approved Google accounts can enter the control room. Access is checked on every request.</p>
+    @if (ephemeral) { <p class="control-note">Test mode: approved accounts are set on the API server and loaded again at each restart.</p> }
 
     @if (loading) { <p>Loading administrators…</p> }
     else if (user?.Role != "PlatformAdmin") { <div class="settings-panel"><h2>Platform access required</h2><p>This page is for platform administrators.</p></div> }
@@ -16,10 +17,10 @@
                 <div class="settings-panel-head"><h2>Approved accounts</h2><span>@people.Count TOTAL</span></div>
                 @foreach (var person in people)
                 {
-                    <div class="person-row"><span class="church-avatar">@person.Email[..1].ToUpperInvariant()</span><span><strong>@person.Email</strong><small>@person.Role · @(person.HasGoogleIdentity ? "Connected" : "Pending invitation")</small></span><button class="small-action" @onclick="() => SelectPerson(person)">Assign</button><button class="small-action" @onclick="() => ToggleAsync(person)" disabled="@(person.Id == user.Id)">@(person.Enabled ? "Disable" : "Enable")</button></div>
+                    <div class="person-row"><span class="church-avatar">@person.Email[..1].ToUpperInvariant()</span><span><strong>@person.Email</strong><small>@person.Role · @(person.HasGoogleIdentity ? "Connected" : "Pending invitation")</small></span>@if (!ephemeral) { <button class="small-action" @onclick="() => SelectPerson(person)">Assign</button><button class="small-action" @onclick="() => ToggleAsync(person)" disabled="@(person.Id == user.Id)">@(person.Enabled ? "Disable" : "Enable")</button> }</div>
                 }
             </section>
-            <section class="settings-panel editor-panel">
+            @if (!ephemeral) { <section class="settings-panel editor-panel">
                 <div class="settings-panel-head"><h2>Invite an administrator</h2><span>NEW INVITATION</span></div>
                 <div class="form-grid"><label>Google account email<input @bind="email" type="email" placeholder="name@example.org" /></label><label>Role<select @bind="role"><option value="ChurchAdmin">Church administrator</option><option value="PlatformAdmin">Platform administrator</option></select></label></div>
                 @if (role == "ChurchAdmin")
@@ -42,7 +43,7 @@
                         <button class="save-button" @onclick="SaveAssignmentsAsync">Save assignments <span>↗</span></button>
                     </div>
                 }
-            </section>
+            </section> }
         </div>
     }
 </main>
@@ -51,7 +52,7 @@
     private CurrentUserResponse? user;
     private IReadOnlyList<ChurchResponse> churches = [];
     private IReadOnlyList<UserResponse> people = [];
-    private bool loading = true, saving, isError;
+    private bool loading = true, saving, isError, ephemeral;
     private string email = "", role = "ChurchAdmin", churchId = "";
     private string? message;
     private UserResponse? selectedPerson;
@@ -61,6 +62,7 @@
     {
         try
         {
+            ephemeral = (await Api.AuthConfigAsync()).EphemeralMode;
             user = await Api.CurrentUserAsync();
             if (user?.Role == "PlatformAdmin") { churches = await Api.ChurchesAsync(); people = await Api.UsersAsync(); }
         }

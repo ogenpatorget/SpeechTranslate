@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: churchtranslate-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/ready
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ChurchTranslate__EphemeralMode
+        value: "true"
+      - key: ChurchTranslate__DevOpenAccess
+        value: "false"
+      - key: ChurchTranslate__TranslationProvider
+        value: Mock
+      - key: ChurchTranslate__AdminOrigin
+        value: https://ogenpatorget.github.io
+      - key: ChurchTranslate__ListenerOrigin
+        value: https://ogenpatorget.github.io
+      - key: ChurchTranslate__PublicAdminUrl
+        value: https://ogenpatorget.github.io/SpeechTranslate/admin/
+      - key: ChurchTranslate__PublicListenerUrl
+        value: https://ogenpatorget.github.io/SpeechTranslate/listen/
+      - key: ChurchTranslate__CrossSiteCookies
+        value: "true"
+      - key: ChurchTranslate__ApprovedAdminEmails
+        sync: false
+      - key: Authentication__Google__ClientId
+        sync: false
+      - key: Authentication__Google__ClientSecret
+        sync: false

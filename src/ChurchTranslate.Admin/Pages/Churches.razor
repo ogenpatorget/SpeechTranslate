@@ -6,6 +6,7 @@
     <div class="eyebrow"><span class="eyebrow-line"></span> WORKSPACE SETTINGS</div>
     <h1>Churches<span class="accent-dot">.</span></h1>
     <p class="settings-intro">Manage the churches you have access to and choose the languages listeners can hear.</p>
+    @if (ephemeral) { <p class="control-note">Test mode: church settings are cleared when the API restarts.</p> }
 
     @if (loading) { <p>Loading churches…</p> }
     else if (user is null) { <div class="settings-panel"><h2>Sign in required</h2><a class="signin-button" href="@Api.LoginUrl">Continue with Google ↗</a></div> }
@@ -56,7 +57,7 @@
     private CurrentUserResponse? user;
     private IReadOnlyList<ChurchResponse> churches = [];
     private ChurchResponse? selected;
-    private bool loading = true, saving, english = true, arabic = true, french = true, enabled = true, isError;
+    private bool loading = true, saving, english = true, arabic = true, french = true, enabled = true, isError, ephemeral;
     private string name = "", slug = "";
     private int maxBroadcasts = 1;
     private int? monthlyLimit;
@@ -64,7 +65,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { user = await Api.CurrentUserAsync(); if (user is not null) churches = await Api.ChurchesAsync(); }
+        try { ephemeral = (await Api.AuthConfigAsync()).EphemeralMode; user = await Api.CurrentUserAsync(); if (user is not null) churches = await Api.ChurchesAsync(); }
         catch (Exception ex) { message = ex.Message; isError = true; }
         finally { loading = false; }
     }

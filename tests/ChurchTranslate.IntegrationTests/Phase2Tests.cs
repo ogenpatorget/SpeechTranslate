@@ -52,6 +52,25 @@ public sealed class Phase2Tests
     }
 
     [Fact]
+    public async Task MemoryStoreAllowsVerifiedAdminOnlyForCurrentProcess()
+    {
+        var store = new MemoryStore();
+        var users = (IUserRepository)store;
+        var churches = (IChurchRepository)store;
+        var service = new AdminService(churches, users, new FixedClock());
+        await users.SaveAsync(new ChurchUser { Email = "approved@example.org", Role = ChurchRole.PlatformAdmin }, default);
+        var church = new Church { Name = "Test", Slug = "test" };
+        await churches.SaveAsync(church, default);
+
+        Assert.Null(await service.BindVerifiedUserAsync("unapproved", "other@example.org", true, default));
+        Assert.Null(await service.BindVerifiedUserAsync("unverified", "approved@example.org", false, default));
+        Assert.NotNull(await service.BindVerifiedUserAsync("google-id", "approved@example.org", true, default));
+        Assert.NotNull(await users.GetBySubjectAsync("google-id", default));
+        Assert.NotNull(await churches.GetAsync(church.Id, default));
+        Assert.Empty(await ((IUserRepository)new MemoryStore()).ListAsync(default));
+    }
+
+    [Fact]
     public async Task ChurchAdminCannotChangeLimitsOrManageAnotherChurch()
     {
         var store = new JsonStore(NewPath());

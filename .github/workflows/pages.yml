@@ -1,0 +1,52 @@
+name: Publish ChurchTranslate frontends
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ vars.PUBLIC_API_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet publish src/ChurchTranslate.Admin/ChurchTranslate.Admin.csproj -c Release -o publish/admin
+      - run: dotnet publish src/ChurchTranslate.Listener/ChurchTranslate.Listener.csproj -c Release -o publish/listener
+      - name: Prepare GitHub Pages files
+        env:
+          PUBLIC_API_URL: ${{ vars.PUBLIC_API_URL }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: >-
+          node scripts/prepare-pages.mjs
+          --admin publish/admin/wwwroot
+          --listener publish/listener/wwwroot
+          --output site
+          --repository "$REPOSITORY_NAME"
+          --api-url "$PUBLIC_API_URL"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

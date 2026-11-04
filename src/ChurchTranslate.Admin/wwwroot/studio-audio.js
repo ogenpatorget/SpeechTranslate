@@ -19,7 +19,7 @@ export async function startCapture(url, deviceId, callback) {
   });
   try {
     context = new AudioContext();
-    await context.audioWorklet.addModule("/capture-worklet.js");
+    await context.audioWorklet.addModule(new URL("capture-worklet.js", document.baseURI));
     source = context.createMediaStreamSource(stream);
     processor = new AudioWorkletNode(context, "ct-capture");
     const silence = context.createGain();

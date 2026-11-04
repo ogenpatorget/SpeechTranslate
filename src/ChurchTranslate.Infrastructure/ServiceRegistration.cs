@@ -21,4 +21,16 @@ public static class ServiceRegistration
         services.AddScoped<AdminService>();
         return services;
     }
+
+    public static IServiceCollection AddChurchTranslateEphemeralFoundation(this IServiceCollection services)
+    {
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<PricingCalculator>();
+        services.AddSingleton<MemoryStore>();
+        services.AddSingleton<IChurchRepository>(sp => sp.GetRequiredService<MemoryStore>());
+        services.AddSingleton<IUserRepository>(sp => sp.GetRequiredService<MemoryStore>());
+        services.AddSingleton<IUsageRepository>(sp => sp.GetRequiredService<MemoryStore>());
+        services.AddScoped<AdminService>();
+        return services;
+    }
 }

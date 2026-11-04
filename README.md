@@ -27,6 +27,8 @@ In **Visual Studio**, right-click the solution → **Properties** → **Configur
 
 When a broadcast starts, the studio shows a QR code for its listener link. Keep the studio tab open while listeners join; leaving it disconnects the audio source and ends the broadcast. The local QR contains `127.0.0.1` and therefore works only on the same computer. For phone listening, configure a listener and API address that the phone can reach over trusted HTTPS; changing the QR image alone does not expose the local services to the phone.
 
+During testing, each broadcast ends automatically five minutes after it becomes live. This is a wall-clock limit, including silence. `ChurchTranslate:MaxBroadcastDuration` controls it on the API (default `00:05:00`).
+
 The listener defaults to **Smooth** playback, which holds a short reserve of translated audio to reduce gaps when chunks arrive unevenly. Listeners can switch to Balanced or Fast to reduce delay, and adjust playback volume. A gentle compressor evens out loud peaks. These controls change playback on each listener device; they do not change the translation model's voice or phrasing.
 
 ### Switch to OpenAI translation
@@ -65,14 +67,44 @@ Set `ChurchTranslate__BootstrapPlatformAdminEmail` to the email of the first pla
 - `/api/admin/broadcasts` starts and stops streams. `/ws/ingest/{id}` accepts one authenticated 24 kHz PCM16 source. `/api/public/broadcasts/{id}` and the short-lived token endpoint let anonymous listeners connect to `/ws/listen/{id}/{language}`. Listener WebSockets have bounded queues so one slow phone does not block a language.
 - Protected requests reload the user record, so disabling an account takes effect on its next request. Church resource access is checked server-side. Only platform admins can invite users or change church limits, status and slug.
 - No raw or translated audio is stored. No Google or AI secrets are sent to the frontends.
+- By default, church settings, approved Google accounts and usage records are stored in `churchtranslate.json`; sign-in protection keys are stored in `keys/`. `ChurchTranslate__EphemeralMode=true` instead keeps temporary church settings and usage in memory, loads approved admin emails from server configuration, and keeps sign-in keys in memory. No app state is written to disk in that mode. A restart clears churches, usage, active broadcasts and sessions; administrators must sign in again.
+- Anyone holding a live listener link can request a short-lived listening token and hear that broadcast. Starting a broadcast and sending paid translation audio require an approved administrator account. The API limits each test broadcast to five minutes and defaults to at most 100 simultaneous listener connections per broadcast (`ChurchTranslate:MaxListenersPerBroadcast`). These limits do not impose a total monthly spending cap; set a church minute limit before testing the paid provider.
 
-The frontend and API should use HTTPS origins under the **same registrable domain** in production (for example `admin.example.org` and `api.example.org`) so SameSite session cookies work. Configure `ChurchTranslate__AdminOrigin` to the exact frontend origin. Give the API a persistent data volume, including its `keys` directory; losing the keys invalidates existing sessions. JSON storage is deliberately limited to **one API process**. Moving to multiple API instances requires replacing it with shared database storage. Restrict access to the volume because cookie protection keys are stored there.
+The frontend and API should use HTTPS origins under the **same registrable domain** in production (for example `admin.example.org` and `api.example.org`) so SameSite session cookies work. Configure `ChurchTranslate__AdminOrigin` to the exact frontend origin. Persistent mode needs a data volume including its `keys` directory; losing the keys invalidates existing sessions. Both storage modes are deliberately limited to **one API process**. Moving to multiple API instances requires shared storage. Restrict access to a persistent volume because cookie protection keys are stored there.
+
+### Disposable MVP mode
+
+For a free host with temporary filesystem storage, set `ChurchTranslate__EphemeralMode=true` and `ChurchTranslate__ApprovedAdminEmails` to a comma-separated list of approved Google email addresses. At least one address is required outside local preview. Each address becomes a platform administrator after Google verifies the email and the person signs in. The account page is read-only in this mode; change the allowlist on the API host and restart to add or remove administrators. Church settings can be entered in the admin UI after each startup, but disappear at the next restart. The OpenAI key and Google OAuth credentials remain server-side environment secrets.
+
+Usage records and church minute limits reset at restart in disposable mode, so they cannot provide a durable spending cap. The five-minute stream limit still applies to each broadcast. Start with `ChurchTranslate__TranslationProvider=Mock`; only enable OpenAI when you accept its separate charges and have an external account-level spending safeguard. A free host may sleep and interrupt streams. If you need stable church settings or durable cost accounting later, move to a persistent database or paid disk.
 
 ## Docker
 
 Run `docker compose -f deploy/docker-compose.yml up --build`. The API is on port 8080 and its data is on the `churchtranslate-data` volume. Set `TRANSLATION_PROVIDER=OpenAI` and `OPENAI_API_KEY` for paid translation. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BOOTSTRAP_ADMIN_EMAIL`, `ADMIN_ORIGIN` and `LISTENER_ORIGIN` for deployment sign-in. The Compose file defaults to Development for local HTTP use; set `ASPNETCORE_ENVIRONMENT=Production` when deploying behind HTTPS. `src/ChurchTranslate.Api/appsettings.Example.json` lists the configuration keys.
 
 Static frontends can be published separately with `dotnet publish`. Their `wwwroot` output can be hosted on Cloudflare Pages. The backend needs a host that supports long-lived WebSocket connections for Phase 3. Scale-to-zero hosts can add cold starts. Production reverse proxy or container-host HTTPS and forwarded-header settings must be configured for the chosen host before live sign-in.
+
+### GitHub Pages frontends
+
+The repository includes `.github/workflows/pages.yml`. It publishes the two Blazor apps under `/SpeechTranslate/admin/` and `/SpeechTranslate/listen/` on the repository's GitHub Pages site. The workflow skips deployment until the repository **Actions variable** `PUBLIC_API_URL` contains the public HTTPS **origin** of a running API (for example `https://api.example.org`). In repository **Settings → Pages**, select **GitHub Actions** as the source. After setting the variable, run the workflow manually or push a commit to `main`.
+
+For the free test API, `render.yaml` defines a Render Free Docker web service. Create a Render account, connect this GitHub repository, and choose **New → Blueprint**. Render prompts for `ChurchTranslate__ApprovedAdminEmails` (your verified Google email), `Authentication__Google__ClientId`, and `Authentication__Google__ClientSecret`; enter these in Render, not in Git. The Blueprint enables disposable mode and starts with the `Mock` provider so deployment creates no OpenAI usage. Render supplies an HTTPS `onrender.com` URL; add its exact `https://YOUR-SERVICE.onrender.com/signin-google` callback to the Google OAuth web client. Put the service origin in the GitHub Actions variable `PUBLIC_API_URL`, then run the Pages workflow. The API's `/health/ready` endpoint is Render's health check. Render terminates HTTPS before forwarding traffic to the container; the API sets the external scheme for OAuth redirects when `RENDER_EXTERNAL_URL` is supplied by Render.
+
+The free Render instance sleeps after inactivity and disposable mode forgets churches and usage on every restart. Create the church again after signing in. This is suitable for testing, not for a live service that must retain settings or spending history. To try paid translation later, set the OpenAI key only on Render and change `ChurchTranslate__TranslationProvider` to `OpenAI` after deciding on an external spending limit.
+
+GitHub Pages cannot run the API, WebSockets, Google OAuth callback, or OpenAI connection. Deploy `ChurchTranslate.Api` separately on an HTTPS host that supports long-lived WebSockets. For the current `ogenpatorget/SpeechTranslate` repository, configure the API with:
+
+```text
+ChurchTranslate__AdminOrigin=https://ogenpatorget.github.io
+ChurchTranslate__ListenerOrigin=https://ogenpatorget.github.io
+ChurchTranslate__PublicAdminUrl=https://ogenpatorget.github.io/SpeechTranslate/admin/
+ChurchTranslate__PublicListenerUrl=https://ogenpatorget.github.io/SpeechTranslate/listen/
+ChurchTranslate__CrossSiteCookies=true
+ChurchTranslate__EphemeralMode=true
+ChurchTranslate__ApprovedAdminEmails=your-google-email@example.org
+```
+
+Also set the backend's Google client ID and secret, OpenAI key/provider and approved admin emails. Choose either disposable mode or a persistent `ChurchTranslate__DataPath`. Add `https://YOUR_API_HOST/signin-google` as an authorized Google redirect URI. Keep secrets on the API host, never in GitHub Pages variables or the frontend files. GitHub Pages and a separately hosted API usually have different site domains; `CrossSiteCookies=true` enables the cookies needed by that setup, but browsers that block third-party cookies may still prevent admin sign-in. For reliable sign-in, put the Pages site and API under subdomains of the same domain, then leave `CrossSiteCookies=false`. Update the Pages base paths if a custom domain changes the site URL structure.
 
 ## Validation and next phase
 

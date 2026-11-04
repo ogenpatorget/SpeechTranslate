@@ -10,6 +10,7 @@ public sealed class BroadcastRuntime(
     IChurchRepository churches, IUsageRepository usage, ITranslationProvider provider,
     ApiOptions options, ILogger<BroadcastRuntime> logger)
 {
+    private const string TimeLimitMessage = "The test broadcast has reached its time limit. Start a new broadcast to continue.";
     private readonly ConcurrentDictionary<Guid, ActiveBroadcast> active = new();
     private readonly ConcurrentDictionary<Guid, string> failures = new();
     public string ProviderName => options.TranslationProvider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase)
@@ -17,6 +18,10 @@ public sealed class BroadcastRuntime(
 
     public async Task<BroadcastResponse> StartAsync(Guid churchId, string[] targets, CancellationToken ct)
     {
+        if (options.MaxBroadcastDuration <= TimeSpan.Zero)
+            throw new InvalidOperationException("The broadcast duration limit must be greater than zero.");
+        if (options.MaxListenersPerBroadcast <= 0)
+            throw new InvalidOperationException("The listener limit must be greater than zero.");
         var church = await churches.GetAsync(churchId, ct) ?? throw new ArgumentException("Church not found.");
         if (!church.Enabled) throw new InvalidOperationException("Church is disabled.");
         targets = Languages.ValidateTargets(targets);
@@ -44,6 +49,7 @@ public sealed class BroadcastRuntime(
             }
             item.StartedAtUtc = DateTimeOffset.UtcNow;
             item.Status = "Live";
+            _ = EndAfterLimitAsync(item);
             return Describe(item);
         }
         catch
@@ -62,29 +68,64 @@ public sealed class BroadcastRuntime(
     {
         if (!active.TryGetValue(broadcastId, out var item) || item.Status != "Live" ||
             !item.Listeners.TryGetValue(language, out var listeners)) return null;
+        if (Interlocked.Increment(ref item.ListenerCount) > options.MaxListenersPerBroadcast)
+        {
+            Interlocked.Decrement(ref item.ListenerCount);
+            return null;
+        }
         var channel = Channel.CreateBounded<AudioPacket>(new BoundedChannelOptions(40)
         { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
         var id = Guid.NewGuid();
         listeners[id] = channel;
+        if (item.Status != "Live" || !active.ContainsKey(broadcastId))
+        {
+            listeners.TryRemove(id, out _);
+            channel.Writer.TryComplete();
+            Interlocked.Decrement(ref item.ListenerCount);
+            return null;
+        }
         return (id, channel.Reader);
     }
 
     public void Unsubscribe(Guid broadcastId, string language, Guid listenerId)
     {
         if (active.TryGetValue(broadcastId, out var item) && item.Listeners.TryGetValue(language, out var listeners) &&
-            listeners.TryRemove(listenerId, out var channel)) channel.Writer.TryComplete();
+            listeners.TryRemove(listenerId, out var channel))
+        {
+            channel.Writer.TryComplete();
+            Interlocked.Decrement(ref item.ListenerCount);
+        }
     }
 
     public async Task SendInputAsync(Guid id, ReadOnlyMemory<byte> pcm16, CancellationToken ct)
     {
         if (!active.TryGetValue(id, out var item) || item.Status != "Live")
             throw new InvalidOperationException(failures.TryGetValue(id, out var reason) ? reason : "Broadcast is not live.");
+        if (DateTimeOffset.UtcNow - item.StartedAtUtc >= options.MaxBroadcastDuration)
+        {
+            failures[id] = TimeLimitMessage;
+            await StopAsync(id, CancellationToken.None);
+            throw new InvalidOperationException(TimeLimitMessage);
+        }
         if (pcm16.Length != 9600) throw new ArgumentException("Send 200 ms of mono 24 kHz PCM16 audio.");
         if (Interlocked.Read(ref item.InputBytes) + pcm16.Length > item.MaxInputBytes)
             throw new InvalidOperationException("The monthly translation minute limit has been reached.");
         // A failed language must stop the broadcast rather than leave listeners with a silent channel.
         foreach (var session in item.Sessions.Values) await session.SendAudioAsync(pcm16, ct);
         Interlocked.Add(ref item.InputBytes, pcm16.Length);
+    }
+
+    private async Task EndAfterLimitAsync(ActiveBroadcast item)
+    {
+        try
+        {
+            await Task.Delay(options.MaxBroadcastDuration, item.Cancel.Token);
+            if (!active.ContainsKey(item.Id)) return;
+            failures[item.Id] = TimeLimitMessage;
+            await StopAsync(item.Id, CancellationToken.None);
+        }
+        catch (OperationCanceledException) when (item.Cancel.IsCancellationRequested) { }
+        catch (Exception ex) { logger.LogError(ex, "Could not stop broadcast {BroadcastId} at its time limit", item.Id); }
     }
 
     public async Task<bool> StopAsync(Guid id, CancellationToken ct)
@@ -141,7 +182,7 @@ public sealed class BroadcastRuntime(
 
     private static BroadcastResponse Describe(ActiveBroadcast item) => new(item.Id, item.Church.Id, item.Church.Name,
         item.Status, item.Targets, item.Provider, item.StartedAtUtc,
-        item.Listeners.Values.Sum(x => x.Count));
+        Volatile.Read(ref item.ListenerCount));
 
     private sealed class ActiveBroadcast(Church church, string[] targets, string provider)
     {
@@ -154,6 +195,7 @@ public sealed class BroadcastRuntime(
         public long InputBytes;
         public long MaxInputBytes = long.MaxValue;
         public int IngestConnected;
+        public int ListenerCount;
         public CancellationTokenSource Cancel { get; } = new();
         public Dictionary<string, ITranslationSession> Sessions { get; } = [];
         public Dictionary<string, ConcurrentDictionary<Guid, Channel<AudioPacket>>> Listeners { get; } = [];

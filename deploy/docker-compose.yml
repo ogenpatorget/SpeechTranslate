@@ -8,9 +8,14 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ChurchTranslate__DataPath: /data
+      ChurchTranslate__EphemeralMode: ${EPHEMERAL_MODE:-false}
+      ChurchTranslate__ApprovedAdminEmails: ${APPROVED_ADMIN_EMAILS:-}
       ChurchTranslate__DevOpenAccess: "false"
       ChurchTranslate__AdminOrigin: ${ADMIN_ORIGIN:-http://127.0.0.1:5301}
       ChurchTranslate__ListenerOrigin: ${LISTENER_ORIGIN:-http://127.0.0.1:5302}
+      ChurchTranslate__PublicAdminUrl: ${PUBLIC_ADMIN_URL:-}
+      ChurchTranslate__PublicListenerUrl: ${PUBLIC_LISTENER_URL:-}
+      ChurchTranslate__CrossSiteCookies: ${CROSS_SITE_COOKIES:-false}
       ChurchTranslate__BootstrapPlatformAdminEmail: ${BOOTSTRAP_ADMIN_EMAIL:-}
       ChurchTranslate__TranslationProvider: ${TRANSLATION_PROVIDER:-Mock}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

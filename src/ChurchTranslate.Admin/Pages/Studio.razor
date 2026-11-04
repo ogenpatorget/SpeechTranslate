@@ -8,13 +8,14 @@
 <main class="dashboard studio-page">
     <div class="eyebrow"><span class="eyebrow-line"></span> LIVE STUDIO</div>
     <h1>Bring your voice<br /><span>to everyone.</span></h1>
-    <p class="studio-intro">Choose the mixer input, then start a stream for the languages your church needs.</p>
+    <p class="studio-intro">Choose the mixer input, then start a stream for the languages your church needs. Test broadcasts end automatically after five minutes.</p>
     @if (error is not null) { <p class="form-error" role="alert">@error</p> }
     @if (broadcast is not null)
     {
         <section class="studio-control-card">
             <div class="studio-status"><span class="live-indicator"><span></span> LIVE</span><strong>@broadcast.ChurchName</strong></div>
             <p>@broadcast.Provider · @string.Join(" · ", broadcast.TargetLanguages.Select(x => x.ToUpperInvariant()))</p>
+            <p class="control-note">This test broadcast ends automatically five minutes after it started.</p>
             <div class="input-meter" aria-label="Input level"><span style="width:@($"{level:0}%")"></span></div>
             <small>INPUT LEVEL</small>
             <div class="share-row"><a href="@Api.ListenerLink(broadcast.Id)" target="_blank" rel="noopener">Open listener in a new tab ↗</a><code>@Api.ListenerLink(broadcast.Id)</code></div>
@@ -40,6 +41,7 @@
             <label>TRANSLATE TO</label>
             <div class="language-checks"><label><input type="checkbox" @bind="english" /> English</label><label><input type="checkbox" @bind="arabic" /> Arabic</label><label><input type="checkbox" @bind="french" /> French</label></div>
             <button class="primary-button" disabled="@busy" @onclick="StartAsync">@(busy ? "Connecting…" : "Start broadcast") <span>↗</span></button>
+            <p class="control-note">Each test broadcast can run for up to five minutes. You can start another afterwards.</p>
             <p class="control-note">The local demo plays a synthetic tone. Choose the OpenAI provider in server settings to hear translation.</p>
         </section>
     }

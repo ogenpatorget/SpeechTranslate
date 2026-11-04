@@ -4,7 +4,7 @@ export async function startPlayback(url, callback, mode, volume) {
   await stopPlayback();
   stopping = false;
   context = new AudioContext();
-  await context.audioWorklet.addModule("/playback-worklet.js");
+  await context.audioWorklet.addModule(new URL("playback-worklet.js", document.baseURI));
   player = new AudioWorkletNode(context, "ct-playback");
   compressor = context.createDynamicsCompressor();
   compressor.threshold.value = -24;

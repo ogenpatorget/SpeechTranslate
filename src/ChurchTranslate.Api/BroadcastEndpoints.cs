@@ -94,7 +94,13 @@ public static class BroadcastEndpoints
             }
             catch { http.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
             var subscription = runtime.Subscribe(id, language);
-            if (subscription is null) { http.Response.StatusCode = StatusCodes.Status404NotFound; return; }
+            if (subscription is null)
+            {
+                http.Response.StatusCode = runtime.Get(id) is { Status: "Live" } broadcast &&
+                    broadcast.TargetLanguages.Contains(language)
+                    ? StatusCodes.Status429TooManyRequests : StatusCodes.Status404NotFound;
+                return;
+            }
             using var socket = await http.WebSockets.AcceptWebSocketAsync();
             try
             {

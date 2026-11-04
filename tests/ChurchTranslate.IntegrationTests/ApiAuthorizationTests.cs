@@ -19,6 +19,28 @@ namespace ChurchTranslate.IntegrationTests;
 public sealed class ApiAuthorizationTests
 {
     [Fact]
+    public async Task EphemeralModeSeedsApprovedAccountsWithoutCreatingDataFiles()
+    {
+        var dataPath = Path.Combine(Path.GetTempPath(), "churchtranslate-ephemeral-" + Guid.NewGuid().ToString("N"));
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Development");
+            builder.UseSetting("ChurchTranslate:EphemeralMode", "true");
+            builder.UseSetting("ChurchTranslate:ApprovedAdminEmails", "approved@example.org");
+            builder.UseSetting("ChurchTranslate:BootstrapPlatformAdminEmail", "");
+            builder.UseSetting("ChurchTranslate:DataPath", dataPath);
+            builder.UseSetting("ChurchTranslate:DevOpenAccess", "false");
+        });
+        using var client = factory.CreateClient();
+        var config = await client.GetFromJsonAsync<AuthConfigResponse>("/api/auth/config");
+        Assert.True(config?.EphemeralMode);
+        var approved = await factory.Services.GetRequiredService<IUserRepository>().ListAsync(default);
+        Assert.Single(approved);
+        Assert.Equal("approved@example.org", approved[0].Email);
+        Assert.False(Directory.Exists(dataPath));
+    }
+
+    [Fact]
     public async Task DevelopmentPreviewCanUseStudioWithoutGoogleFromNonLoopbackClient()
     {
         var dataPath = Path.Combine(Path.GetTempPath(), "churchtranslate-api-" + Guid.NewGuid().ToString("N"));

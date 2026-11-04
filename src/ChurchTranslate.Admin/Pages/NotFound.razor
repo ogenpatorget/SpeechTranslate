@@ -6,7 +6,7 @@
 <PageTitle>Page not found · ChurchTranslate</PageTitle>
 @if (signedIn)
 {
-    <main class="dashboard" style="padding-top: 80px"><div class="eyebrow">404 / PAGE NOT FOUND</div><h1>The page isn't here.</h1><p>Return to the control room overview.</p><a href="/">Back to overview →</a></main>
+    <main class="dashboard" style="padding-top: 80px"><div class="eyebrow">404 / PAGE NOT FOUND</div><h1>The page isn't here.</h1><p>Return to the control room overview.</p><a href="">Back to overview →</a></main>
 }
 
 @code {
@@ -16,6 +16,6 @@
     {
         try { signedIn = await Api.CurrentUserAsync() is not null; }
         catch { signedIn = false; }
-        if (!signedIn) Navigation.NavigateTo("/");
+        if (!signedIn) Navigation.NavigateTo("");
     }
 }

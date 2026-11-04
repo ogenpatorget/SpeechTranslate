@@ -7,7 +7,7 @@ namespace ChurchTranslate.Admin;
 
 public sealed class AdminApiClient(HttpClient http)
 {
-    private string listenerOrigin = "http://127.0.0.1:5302";
+    private string listenerUrl = "http://127.0.0.1:5302/";
     public string LoginUrl => new Uri(http.BaseAddress!, "auth/login").ToString();
 
     public async Task<AuthConfigResponse> AuthConfigAsync(CancellationToken ct = default)
@@ -15,7 +15,7 @@ public sealed class AdminApiClient(HttpClient http)
         using var response = await SendAsync(HttpMethod.Get, "api/auth/config", null, ct);
         await EnsureSuccessAsync(response, ct);
         var config = (await response.Content.ReadFromJsonAsync<AuthConfigResponse>(cancellationToken: ct))!;
-        listenerOrigin = config.ListenerOrigin;
+        listenerUrl = config.ListenerUrl;
         return config;
     }
 
@@ -52,7 +52,7 @@ public sealed class AdminApiClient(HttpClient http)
     public string IngestWebSocketUrl(Guid id) => new Uri(http.BaseAddress!, $"ws/ingest/{id}").ToString()
         .Replace("http://", "ws://").Replace("https://", "wss://");
 
-    public string ListenerLink(Guid id) => $"{listenerOrigin}/?broadcast={id}";
+    public string ListenerLink(Guid id) => $"{listenerUrl.TrimEnd('/')}/?broadcast={id}";
 
     public async Task<ChurchResponse> CreateChurchAsync(ChurchChangeRequest change, CancellationToken ct = default) =>
         await WriteAsync<ChurchResponse>(HttpMethod.Post, "api/admin/churches", change, ct);

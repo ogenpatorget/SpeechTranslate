@@ -82,8 +82,9 @@ public static class AdminEndpoints
             try { return Results.Ok((await service.ListUsersAsync(actor, http.RequestAborted)).Select(ToResponse)); }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
-        admin.MapPost("/users", async (InviteUserRequest request, HttpContext http, AdminService service) =>
+        admin.MapPost("/users", async (InviteUserRequest request, HttpContext http, AdminService service, ApiOptions options) =>
         {
+            if (options.EphemeralMode) return Results.Conflict(new ProblemResponse("managed_accounts", "Approved accounts are configured on the server in ephemeral mode."));
             var actor = await ActorAsync(http, service);
             if (actor is null) return Results.Unauthorized();
             if (!Enum.TryParse<ChurchRole>(request.Role, false, out var role) || !Enum.IsDefined(role))
@@ -98,8 +99,9 @@ public static class AdminEndpoints
             catch (ArgumentException ex) { return Results.BadRequest(new ProblemResponse("validation", ex.Message)); }
             catch (InvalidOperationException ex) { return Results.Conflict(new ProblemResponse("conflict", ex.Message)); }
         });
-        admin.MapPut("/users/{id:guid}", async (Guid id, UpdateUserRequest request, HttpContext http, AdminService service) =>
+        admin.MapPut("/users/{id:guid}", async (Guid id, UpdateUserRequest request, HttpContext http, AdminService service, ApiOptions options) =>
         {
+            if (options.EphemeralMode) return Results.Conflict(new ProblemResponse("managed_accounts", "Approved accounts are configured on the server in ephemeral mode."));
             var actor = await ActorAsync(http, service);
             if (actor is null) return Results.Unauthorized();
             try
