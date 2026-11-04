@@ -14,7 +14,7 @@ services:
       - key: ChurchTranslate__DevOpenAccess
         value: "false"
       - key: ChurchTranslate__TranslationProvider
-        value: Mock
+        value: OpenAI
       - key: ChurchTranslate__AdminOrigin
         value: https://ogenpatorget.github.io
       - key: ChurchTranslate__ListenerOrigin
@@ -30,4 +30,6 @@ services:
       - key: Authentication__Google__ClientId
         sync: false
       - key: Authentication__Google__ClientSecret
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
