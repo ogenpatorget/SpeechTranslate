@@ -19,7 +19,7 @@ namespace ChurchTranslate.IntegrationTests;
 public sealed class ApiAuthorizationTests
 {
     [Fact]
-    public async Task EphemeralModeSeedsApprovedAccountsWithoutCreatingDataFiles()
+    public async Task EphemeralModeSeedsApprovedAccountsAndTestChurchWithoutCreatingDataFiles()
     {
         var dataPath = Path.Combine(Path.GetTempPath(), "churchtranslate-ephemeral-" + Guid.NewGuid().ToString("N"));
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -37,6 +37,11 @@ public sealed class ApiAuthorizationTests
         var approved = await factory.Services.GetRequiredService<IUserRepository>().ListAsync(default);
         Assert.Single(approved);
         Assert.Equal("approved@example.org", approved[0].Email);
+        var churches = await factory.Services.GetRequiredService<IChurchRepository>().ListAsync(default);
+        var church = Assert.Single(churches);
+        Assert.Equal("Test", church.Name);
+        Assert.Equal("test", church.Slug);
+        Assert.Equal(["en", "ar", "fr"], church.AllowedTargetLanguages);
         Assert.False(Directory.Exists(dataPath));
     }
 

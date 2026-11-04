@@ -189,6 +189,16 @@ if (approvedAdminEmails.Length > 0)
         app.Logger.LogInformation("Created platform administrator invitation");
     }
 }
+if (settings.EphemeralMode)
+{
+    using var scope = app.Services.CreateScope();
+    var churches = scope.ServiceProvider.GetRequiredService<IChurchRepository>();
+    if (!(await churches.ListAsync(CancellationToken.None)).Any())
+    {
+        await churches.SaveAsync(new Church { Name = "Test", Slug = "test" }, CancellationToken.None);
+        app.Logger.LogInformation("Created in-memory test church");
+    }
+}
 if (app.Environment.IsDevelopment() && settings.DevOpenAccess)
 {
     using var scope = app.Services.CreateScope();
