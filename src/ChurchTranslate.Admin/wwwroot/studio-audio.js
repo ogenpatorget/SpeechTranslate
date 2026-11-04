@@ -25,19 +25,21 @@ export async function startCapture(url, deviceId, callback) {
     const silence = context.createGain();
     silence.gain.value = 0;
     source.connect(processor).connect(silence).connect(context.destination);
-    socket = new WebSocket(url);
-    socket.binaryType = "arraybuffer";
+    const connection = new WebSocket(url);
+    socket = connection;
+    connection.binaryType = "arraybuffer";
     await new Promise((resolve, reject) => {
-      socket.onopen = resolve;
-      socket.onerror = () => reject(new Error("Could not connect the audio stream."));
+      connection.onopen = resolve;
+      connection.onerror = () => reject(new Error("Could not connect the audio stream."));
     });
     processor.port.onmessage = event => {
-      if (event.data.pcm && socket.readyState === WebSocket.OPEN && socket.bufferedAmount < 96000)
-        socket.send(event.data.pcm);
+      if (event.data.pcm && socket === connection && connection.readyState === WebSocket.OPEN && connection.bufferedAmount < 96000)
+        connection.send(event.data.pcm);
       if (event.data.level !== undefined) callback.invokeMethodAsync("InputLevel", event.data.level);
     };
-    socket.onclose = event => {
-      if (!stopping) callback.invokeMethodAsync("AudioStopped", event.reason || "The audio connection ended.");
+    connection.onclose = event => {
+      if (socket !== connection || stopping) return;
+      callback.invokeMethodAsync("AudioStopped", event.reason || `The audio connection ended (code ${event.code}).`);
       stopCapture();
     };
     window.addEventListener("beforeunload", warnBeforeLeaving);
@@ -51,8 +53,9 @@ export async function startCapture(url, deviceId, callback) {
 export async function stopCapture() {
   stopping = true;
   window.removeEventListener("beforeunload", warnBeforeLeaving);
-  if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+  const closingSocket = socket;
   socket = null;
+  if (closingSocket && closingSocket.readyState === WebSocket.OPEN) closingSocket.close();
   processor?.disconnect();
   source?.disconnect();
   stream?.getTracks().forEach(track => track.stop());
