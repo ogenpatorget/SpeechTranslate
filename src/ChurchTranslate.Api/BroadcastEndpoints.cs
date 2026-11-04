@@ -64,6 +64,7 @@ public static class BroadcastEndpoints
             using var socket = await http.WebSockets.AcceptWebSocketAsync();
             var buffer = new byte[9600];
             var length = 0;
+            var receivedInput = false;
             logger.LogInformation("Ingest connected for broadcast {BroadcastId}", id);
             try
             {
@@ -88,6 +89,11 @@ public static class BroadcastEndpoints
                     }
                     if (!received.EndOfMessage) continue;
                     await runtime.SendInputAsync(id, buffer, http.RequestAborted);
+                    if (!receivedInput)
+                    {
+                        logger.LogInformation("First audio frame received for broadcast {BroadcastId}", id);
+                        receivedInput = true;
+                    }
                     length = 0;
                 }
             }
@@ -98,7 +104,7 @@ public static class BroadcastEndpoints
                     await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, ex.Message, CancellationToken.None);
             }
             catch (Exception ex) when (socket.State != WebSocketState.Open || http.RequestAborted.IsCancellationRequested)
-            { logger.LogInformation(ex, "Ingest connection interrupted for broadcast {BroadcastId}", id); }
+            { logger.LogInformation("Ingest connection interrupted for broadcast {BroadcastId}: {Reason}", id, ex.Message); }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Ingest connection failed for broadcast {BroadcastId}", id);
@@ -110,8 +116,9 @@ public static class BroadcastEndpoints
         }).RequireAuthorization();
 
         app.Map("/ws/listen/{id:guid}/{language}", async (Guid id, string language, HttpContext http,
-            BroadcastRuntime runtime, ApiOptions settings, ITimeLimitedDataProtector tokenProtector) =>
+            BroadcastRuntime runtime, ApiOptions settings, ITimeLimitedDataProtector tokenProtector, ILoggerFactory loggerFactory) =>
         {
+            var logger = loggerFactory.CreateLogger("ChurchTranslate.ListenerStream");
             var token = http.Request.Query["token"].ToString();
             try
             {
@@ -129,8 +136,10 @@ public static class BroadcastEndpoints
                 return;
             }
             using var socket = await http.WebSockets.AcceptWebSocketAsync();
+            logger.LogInformation("Listener connected for broadcast {BroadcastId} language {Language}", id, language);
             try
             {
+                var sent = false;
                 await foreach (var packet in subscription.Value.reader.ReadAllAsync(http.RequestAborted))
                 {
                     var bytes = new byte[24 + packet.Payload.Length];
@@ -140,13 +149,22 @@ public static class BroadcastEndpoints
                     BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(20), packet.SampleRateHz);
                     packet.Payload.CopyTo(bytes.AsMemory(24));
                     await socket.SendAsync(bytes, WebSocketMessageType.Binary, true, http.RequestAborted);
+                    if (!sent)
+                    {
+                        logger.LogInformation("First audio packet sent to listener for broadcast {BroadcastId} language {Language}", id, language);
+                        sent = true;
+                    }
                 }
                 if (socket.State == WebSocketState.Open)
                     await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Broadcast ended", CancellationToken.None);
             }
             catch (OperationCanceledException) { }
             catch (WebSocketException) { }
-            finally { runtime.Unsubscribe(id, language, subscription.Value.id); }
+            finally
+            {
+                logger.LogInformation("Listener disconnected for broadcast {BroadcastId} language {Language}", id, language);
+                runtime.Unsubscribe(id, language, subscription.Value.id);
+            }
         });
     }
 

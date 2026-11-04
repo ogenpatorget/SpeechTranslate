@@ -31,8 +31,12 @@
             <label class="volume-label" for="listener-volume">Volume <strong>@volume%</strong></label>
             <input id="listener-volume" class="volume-slider" type="range" min="0" max="200" step="10" value="@volume" @oninput="SetVolumeAsync" />
         </div>
-        <button class="play-button" disabled="@(broadcast is null)" @onclick="ToggleAsync"><span class="play-icon" aria-hidden="true">@(playing ? "■" : "▶")</span> @(playing ? "Stop listening" : "Start listening") <span aria-hidden="true">↗</span></button>
-        <div class="player-note"><span aria-hidden="true">◎</span><p>@(broadcast?.Provider == "Demo tone" ? "This is a local demo signal, not translated speech." : "Use headphones for the clearest sound. No account or app needed.")</p></div>
+        <button class="play-button" data-audio-start="@(!playing)" disabled="@(broadcast is null)" @onclick="ToggleAsync"><span class="play-icon" aria-hidden="true">@(playing ? "■" : "▶")</span> @(playing ? "Stop listening" : "Start listening") <span aria-hidden="true">↗</span></button>
+        @if (playing)
+        {
+            <p class="player-note" role="status">@(audioPaused ? "Your browser paused audio. Tap Stop listening, then Start listening again." : receivingAudio ? "Audio is arriving. If it is silent, check phone volume and the silent switch." : "Connected. Waiting for audio from the studio…")</p>
+        }
+        <div class="player-note"><span aria-hidden="true">◎</span><p>@(broadcast?.Provider == "Demo tone" ? "This is a demo tone, not translated speech." : "Use headphones for the clearest sound. No account or app needed.")</p></div>
     </section>
     <p class="listen-footnote">Bring your own headphones for the best experience.</p>
 </main>
@@ -48,6 +52,8 @@
     private string mode = "smooth";
     private int volume = 100;
     private bool playing;
+    private bool receivingAudio;
+    private bool audioPaused;
     private string? error;
 
     protected override async Task OnParametersSetAsync()
@@ -92,28 +98,50 @@
         if (broadcast is null) return;
         try
         {
-            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./listener-audio.js");
+            receivingAudio = false;
+            audioPaused = false;
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./listener-audio.js?v=20261104b");
             callback ??= DotNetObjectReference.Create(this);
             var token = await Http.GetFromJsonAsync<ListenTokenResponse>(
                 $"api/public/broadcasts/{broadcast.Id}/{selectedLanguage}/token");
             var url = new Uri(Http.BaseAddress!, $"ws/listen/{broadcast.Id}/{selectedLanguage}?token={Uri.EscapeDataString(token!.Token)}")
                 .ToString().Replace("http://", "ws://").Replace("https://", "wss://");
-            await module.InvokeVoidAsync("startPlayback", url, callback, mode, volume);
+            audioPaused = await module.InvokeAsync<string>("startPlayback", url, callback, mode, volume) != "running";
             playing = true; error = null;
         }
-        catch (Exception ex) { error = ex.Message; playing = false; }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            playing = false;
+            if (module is not null) try { await module.InvokeVoidAsync("stopPlayback"); } catch (JSException) { }
+        }
     }
 
     private async Task StopAsync()
     {
         if (module is not null) await module.InvokeVoidAsync("stopPlayback");
         playing = false;
+        receivingAudio = false;
+        audioPaused = false;
     }
 
-    [JSInvokable] public void PlaybackEnded()
+    [JSInvokable] public void AudioPacketReceived()
+    {
+        receivingAudio = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable] public void PlaybackStateChanged(string state)
+    {
+        audioPaused = state != "running";
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable] public void PlaybackEnded(string reason)
     {
         playing = false;
-        error = "The audio connection ended. Press Start listening to reconnect.";
+        receivingAudio = false;
+        error = reason + " Press Start listening to reconnect.";
         InvokeAsync(StateHasChanged);
     }
 

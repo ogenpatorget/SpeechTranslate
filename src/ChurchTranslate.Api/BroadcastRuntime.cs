@@ -161,10 +161,17 @@ public sealed class BroadcastRuntime(
     {
         try
         {
+            var receivedOutput = false;
             await foreach (var chunk in session.ReceiveAsync(item.Cancel.Token))
             {
                 if (chunk.Encoding != "pcm16" || chunk.SampleRateHz != 24000) continue;
                 var packet = new AudioPacket(chunk.Sequence, chunk.TimestampUtc, chunk.Encoding, chunk.SampleRateHz, chunk.Payload);
+                if (!receivedOutput)
+                {
+                    logger.LogInformation("First translated audio packet received for broadcast {BroadcastId} language {Language}; listeners: {ListenerCount}",
+                        item.Id, language, item.Listeners[language].Count);
+                    receivedOutput = true;
+                }
                 foreach (var listener in item.Listeners[language].Values) listener.Writer.TryWrite(packet);
             }
         }
