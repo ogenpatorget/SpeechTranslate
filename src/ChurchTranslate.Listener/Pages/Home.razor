@@ -34,7 +34,7 @@
         <button class="play-button" data-audio-start="@(!playing)" disabled="@(broadcast is null)" @onclick="ToggleAsync"><span class="play-icon" aria-hidden="true">@(playing ? "■" : "▶")</span> @(playing ? "Stop listening" : "Start listening") <span aria-hidden="true">↗</span></button>
         @if (playing)
         {
-            <p class="player-note" role="status">@(audioPaused ? "Your browser paused audio. Tap Stop listening, then Start listening again." : receivingAudio ? "Audio is arriving. If it is silent, check phone volume and the silent switch." : "Connected. Waiting for audio from the studio…")</p>
+            <p class="player-note" role="status">@(audioPaused ? "Your browser paused audio. Tap Stop listening, then Start listening again." : buffering ? "Buffering translated audio for smoother playback…" : receivingAudio ? "Audio is arriving. If it is silent, check phone volume and the silent switch." : "Connected. Waiting for audio from the studio…")</p>
         }
         <div class="player-note"><span aria-hidden="true">◎</span><p>@(broadcast?.Provider == "Demo tone" ? "This is a demo tone, not translated speech." : "Use headphones for the clearest sound. No account or app needed.")</p></div>
     </section>
@@ -54,6 +54,7 @@
     private bool playing;
     private bool receivingAudio;
     private bool audioPaused;
+    private bool buffering;
     private string? error;
 
     protected override async Task OnParametersSetAsync()
@@ -100,7 +101,8 @@
         {
             receivingAudio = false;
             audioPaused = false;
-            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./listener-audio.js?v=20261104b");
+            buffering = false;
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./listener-audio.js?v=20261104c");
             callback ??= DotNetObjectReference.Create(this);
             var token = await Http.GetFromJsonAsync<ListenTokenResponse>(
                 $"api/public/broadcasts/{broadcast.Id}/{selectedLanguage}/token");
@@ -123,6 +125,7 @@
         playing = false;
         receivingAudio = false;
         audioPaused = false;
+        buffering = false;
     }
 
     [JSInvokable] public void AudioPacketReceived()
@@ -137,10 +140,17 @@
         InvokeAsync(StateHasChanged);
     }
 
+    [JSInvokable] public void PlaybackBufferingChanged(bool value)
+    {
+        buffering = value;
+        InvokeAsync(StateHasChanged);
+    }
+
     [JSInvokable] public void PlaybackEnded(string reason)
     {
         playing = false;
         receivingAudio = false;
+        buffering = false;
         error = reason + " Press Start listening to reconnect.";
         InvokeAsync(StateHasChanged);
     }

@@ -1,7 +1,7 @@
 const modes = {
   fast: { targetMs: 80, maxWaitMs: 150 },
   balanced: { targetMs: 250, maxWaitMs: 350 },
-  smooth: { targetMs: 500, maxWaitMs: 650 }
+  smooth: { targetMs: 1000, maxWaitMs: 1500 }
 };
 
 class PlaybackProcessor extends AudioWorkletProcessor {
@@ -15,6 +15,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     this.playing = false;
     this.fadeIn = 0;
     this.lastSample = 0;
+    this.buffering = false;
     this.mode = modes.smooth;
     this.port.onmessage = event => {
       if (event.data.reset) {
@@ -22,6 +23,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
         this.offset = this.position = this.bufferedSamples = this.waitedFrames = 0;
         this.playing = false;
         this.fadeIn = this.lastSample = 0;
+        this.setBuffering(false);
         return;
       }
       if (event.data.mode) this.mode = modes[event.data.mode] ?? modes.balanced;
@@ -30,13 +32,22 @@ class PlaybackProcessor extends AudioWorkletProcessor {
       if (!chunk.length) return;
       this.queue.push(chunk);
       this.bufferedSamples += chunk.length;
+      if (!this.playing) this.setBuffering(true);
       // Keep a stalled tab from accumulating an ever-increasing delay.
-      while (this.queue.length > 1 && this.bufferedSamples > 48000) {
+      const maxBufferedSamples = this.mode === modes.smooth ? 144000 : 48000;
+      while (this.queue.length > 1 && this.bufferedSamples > maxBufferedSamples) {
         this.bufferedSamples -= this.queue.shift().length - this.offset;
-        this.offset = this.position = 0;
+        this.offset = this.position = this.waitedFrames = 0;
         this.playing = false;
+        this.setBuffering(true);
       }
     };
+  }
+
+  setBuffering(value) {
+    if (this.buffering === value) return;
+    this.buffering = value;
+    this.port.postMessage({ buffering: value });
   }
 
   nextValue() {
@@ -68,6 +79,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
           (this.bufferedSamples >= this.mode.targetMs * 24 ||
            this.waitedFrames >= this.mode.maxWaitMs * sampleRate / 1000)) {
         this.playing = true;
+        this.setBuffering(false);
         this.waitedFrames = 0;
         this.fadeIn = 0;
       }
@@ -81,6 +93,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
       const value = this.nextValue();
       if (value === null) {
         this.playing = false;
+        this.setBuffering(true);
         this.waitedFrames = 0;
         this.lastSample *= 0.97;
         output[i] = this.lastSample;

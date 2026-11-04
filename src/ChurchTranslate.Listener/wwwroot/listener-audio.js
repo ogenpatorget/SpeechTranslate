@@ -25,8 +25,12 @@ export async function startPlayback(url, callback, mode, volume) {
   playbackContext.onstatechange = () => {
     if (context === playbackContext) callback.invokeMethodAsync("PlaybackStateChanged", playbackContext.state);
   };
-  await context.audioWorklet.addModule(new URL("playback-worklet.js", document.baseURI));
+  await context.audioWorklet.addModule(new URL("playback-worklet.js?v=20261104c", document.baseURI));
   player = new AudioWorkletNode(context, "ct-playback");
+  player.port.onmessage = event => {
+    if (context === playbackContext && typeof event.data.buffering === "boolean")
+      callback.invokeMethodAsync("PlaybackBufferingChanged", event.data.buffering);
+  };
   compressor = context.createDynamicsCompressor();
   compressor.threshold.value = -24;
   compressor.knee.value = 24;
